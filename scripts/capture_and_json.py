@@ -23,10 +23,10 @@ ADB = os.path.expanduser("~/Library/Android/sdk/platform-tools/adb")
 OUTPUT = os.path.expanduser("~/Desktop/doubao_capture.json")
 TIMEOUT = 60
 
-# UI tap targets (calibrated for 1080×1920 emulator)
-TAP_INPUT  = (540, 1380)   # message input field
-TAP_SEND   = (986, 1410)   # send button
-TAP_PASTE  = (480, 1280)   # "Paste" popup after long-press
+# UI tap targets (1080px wide emulator, density 420)
+TAP_INPUT  = (540, 1400)   # message input field
+TAP_SEND   = (986, 1406)   # send button (appears after typing)
+TAP_PASTE  = (480, 1250)   # "Paste" popup after long-press (above input)
 
 
 # ── ADB helpers ────────────────────────────────────────────────
@@ -109,9 +109,11 @@ def _has_cjk(text):
 
 
 def _send_ascii(text):
-    """Send ASCII text via `input text`."""
-    safe = shlex.quote(text)
-    _adb_shell(f"input text {safe}")
+    """Send ASCII text via `input text`.
+    Spaces must be encoded as %s; other special chars escaped."""
+    safe = text.replace('%', '\\%').replace(' ', '%s')
+    # Use list-based adb call to avoid local shell quote stripping
+    _adb("shell", "input", "text", safe)
 
 
 def _send_chinese(text):
