@@ -210,6 +210,35 @@ def wait_for_response(before, timeout=TIMEOUT):
     return None
 
 
+def check_already_responded(texts):
+    """If the message was already sent and AI responded, return the answer.
+
+    Detects this by checking: input field empty (message sent) + long
+    text node present in the message area (AI response visible).
+    """
+    # Check if input field is empty (hint text means no input)
+    has_input = any("发消息" in t or "按住说话" in t for t in texts)
+    if not has_input:
+        return None  # message still being typed, not sent yet
+
+    # Look for a long text that's likely an AI response
+    skip_words = [
+        "豆包", "快速", "打电话", "AI 创作", "视频通话", "相机", "返回",
+        "反馈", "深度思考", "Seedance", "帮我写作", "聊聊新话题",
+        "停止生成", "重新生成", "复制", "点赞", "点踩", "分享",
+        "继续问", "上传", "文件", "内容由 AI 生成",
+    ]
+    candidates = []
+    for t in texts:
+        t = t.strip()
+        if len(t) < 100:
+            continue
+        if any(w in t for w in skip_words):
+            continue
+        candidates.append(t)
+    return max(candidates, key=len) if candidates else None
+
+
 def save(question, answer, path=OUTPUT):
     data = {
         "code": 0,
@@ -235,8 +264,28 @@ def save(question, answer, path=OUTPUT):
 
 def main():
     if len(sys.argv) < 2:
-        print(f"Usage: python3 {sys.argv[0]} \"your question\" [output.json]")
-        sys.exit(1)
+        # Capture-only mode: no message arg, just grab what's on screen
+        out = OUTPUT
+        print("=" * 55)
+        print("  Mode: Capture only (manual send)")
+        print(f"  Output: {out}")
+        print("=" * 55)
+
+        print("[*] Scroll to bottom...")
+        scroll_to_bottom()
+        texts = get_texts()
+
+        answer = check_already_responded(texts)
+        if answer:
+            print(f"\n{'─' * 50}")
+            print(answer)
+            print(f"{'─' * 50}\n")
+            save("(manual)", answer, out)
+            print("Done ✓")
+        else:
+            print("[!] No AI response visible on screen yet.")
+            print("[!] Wait for the AI to finish replying, then re-run without args.")
+        return
 
     msg = sys.argv[1]
     out = sys.argv[2] if len(sys.argv) > 2 else OUTPUT
@@ -246,15 +295,26 @@ def main():
     print(f"  Output:  {out}")
     print("=" * 55)
 
-    print("[1/4] Scroll to bottom + snapshot UI...")
+    print("[1/4] Scroll to bottom + snapshot...")
     scroll_to_bottom()
     before = get_texts()
+
+    # Check if message was already sent (manual mode) and AI responded
+    answer = check_already_responded(before)
+    if answer:
+        print("\n  (AI already responded — capturing directly)\n")
+        print(f"{'─' * 50}")
+        print(answer)
+        print(f"{'─' * 50}\n")
+        save(msg, answer, out)
+        print("Done ✓")
+        return
 
     print("[2/4] Send message...")
     send_message(msg)
 
     print("[3/4] Wait for AI reply...")
-    answer = wait_for_response(before)
+    answer = wait_for_response(set(before))
 
     if answer:
         print(f"\n{'─' * 50}")
