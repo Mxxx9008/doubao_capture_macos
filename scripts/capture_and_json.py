@@ -88,27 +88,11 @@ def _get_texts_with_pos():
 
 
 def scroll_to_bottom():
-    """Scroll to the very bottom of the conversation.
-
-    Loops until visible content stabilizes (no new text nodes appear
-    after two consecutive scroll cycles), ensuring we're truly at the
-    bottom before taking a baseline snapshot.
-    """
-    prev_texts = None
-    for attempt in range(8):
-        # Rapid flings
-        for _ in range(12):
-            _adb("shell", "input", "swipe", "540", "1800", "540", "400", "30")
-            time.sleep(0.06)
-        time.sleep(0.5)
-
-        current = set(get_texts())
-        if prev_texts is not None and current == prev_texts:
-            # Content stabilized — we're at the bottom
-            return True
-        prev_texts = current
-
-    return True  # best effort
+    """Scroll to the bottom of the conversation with rapid flings."""
+    for _ in range(15):
+        _adb("shell", "input", "swipe", "540", "1800", "540", "400", "30")
+        time.sleep(0.08)
+    time.sleep(0.6)
 
 
 def find_answer(before, after):
@@ -209,32 +193,18 @@ def send_message(text):
 
 
 def wait_for_response(before, timeout=TIMEOUT):
-    """Poll UI until new AI response appears.
-
-    Only scrolls to bottom if no changes detected for a while,
-    to avoid pulling old off-screen content into view as false positives.
-    The app normally auto-scrolls to show streaming AI replies.
-    """
-    last_change = 0
+    """Poll UI until new AI response appears. Scrolls to bottom regularly."""
     for i in range(timeout):
         time.sleep(1)
         after = get_texts()
-
-        # Check if anything changed at all (even UI elements)
-        if set(after) != before:
-            last_change = i
-
         ans = find_answer(before, after)
         if ans:
             return ans
-
-        # If no changes for 8s, try scrolling to bottom to "wake up" the view
-        if i - last_change >= 8:
+        # Scroll to bottom every 3s so streaming content stays visible
+        if i % 3 == 0 and i > 0:
             scroll_to_bottom()
-            last_change = i
-            # Update baseline so scrolled-in content isn't treated as new
+            # Update baseline so scrolled-in old content isn't a false positive
             before = set(after)
-
         if i % 10 == 0 and i > 0:
             print(f"    ... {i}s")
     return None
