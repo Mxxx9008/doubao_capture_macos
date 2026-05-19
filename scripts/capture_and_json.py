@@ -73,6 +73,32 @@ def get_texts():
     return [_html.unescape(t) for t in texts if t.strip()]
 
 
+def _get_texts_with_pos():
+    """Extract visible texts with their Y positions."""
+    raw = _dump_xml()
+    nodes = re.findall(
+        r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]".*?text="([^"]*)"', raw
+    )
+    results = []
+    for x1, y1, x2, y2, txt in nodes:
+        t = _html.unescape(txt).strip()
+        if t:
+            results.append((int(y1), t))
+    return sorted(results)
+
+
+def scroll_to_bottom():
+    """Scroll the message list to the very bottom.
+
+    Uses rapid consecutive flings — short duration for max momentum.
+    Targets the RecyclerView area [0,294][1080,2006].
+    """
+    for _ in range(15):
+        _adb("shell", "input", "swipe", "540", "1800", "540", "400", "30")
+        time.sleep(0.08)
+    time.sleep(0.6)  # let scroll settle
+
+
 def find_answer(before, after):
     """Return the new AI response text, or None."""
     before_set = set(before)
@@ -90,7 +116,6 @@ def find_answer(before, after):
         if any(w in t for w in skip_words):
             continue
         candidates.append(t)
-    # Prefer longest (AI responses are multi-paragraph)
     return max(candidates, key=len) if candidates else None
 
 
@@ -172,9 +197,12 @@ def send_message(text):
 
 
 def wait_for_response(before, timeout=TIMEOUT):
-    """Poll UI until new AI response appears."""
+    """Poll UI until new AI response appears. Scrolls to bottom each cycle."""
     for i in range(timeout):
         time.sleep(1)
+        # Scroll to bottom every 3s to catch new content as it streams in
+        if i % 3 == 0:
+            scroll_to_bottom()
         after = get_texts()
         ans = find_answer(before, after)
         if ans:
@@ -220,7 +248,8 @@ def main():
     print(f"  Output:  {out}")
     print("=" * 55)
 
-    print("[1/4] Snapshot UI...")
+    print("[1/4] Scroll to bottom + snapshot UI...")
+    scroll_to_bottom()
     before = get_texts()
 
     print("[2/4] Send message...")
