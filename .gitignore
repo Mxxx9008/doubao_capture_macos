@@ -4,3 +4,11 @@ __pycache__/
 .DS_Store
 .venv/
 venv/
+*.png
+*.mov
+debug_ui.xml
+coords_debug.json
+doubao_capture.json
+doubao_weather_capture.json
+output/*.json
+!output/doubao_news_capture.json
