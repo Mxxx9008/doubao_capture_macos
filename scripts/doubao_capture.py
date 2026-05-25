@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sys
+import secrets
 import html as _html
 
 # ── uiautomator2 (required for text input on physical devices) ──
@@ -117,6 +118,15 @@ def find_answer(before, after, question=""):
     return max(candidates, key=len) if candidates else None
 
 
+def extract_search_info(texts):
+    """Extract search summary and reference count from UI texts."""
+    for t in texts:
+        m = re.match(r'^搜索\s+(\d+)\s*个关键词[,，]\s*参考\s+(\d+)\s*篇资料', t)
+        if m:
+            return t, int(m.group(2))
+    return "", 0
+
+
 def check_already_responded(texts):
     """Check if an AI response is visible (for manual capture mode)."""
     has_input = any("发消息" in t or "按住说话" in t for t in texts)
@@ -177,26 +187,39 @@ def wait_for_response(before, timeout=TIMEOUT, question=""):
         after = get_texts()
         ans = find_answer(before, after, question=question)
         if ans:
-            return ans
+            search_summary, total_refs = extract_search_info(after)
+            return ans, search_summary, total_refs
         if i % 10 == 0 and i > 0:
             print(f"    ... {i}s")
-    return None
+    return None, "", 0
 
 
-def save(question, answer, path=OUTPUT):
+def save(question, answer, path=OUTPUT, search_summary="", total_references=0):
+    task_id = secrets.token_hex(6)
+    mode = "quick" if search_summary else "chat"
+
     data = {
         "code": 0,
         "msg": "success",
         "data": {
-            "conversation_id": f"ui_cap_{int(time.time())}",
-            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "capture_method": "ui_text_extraction",
-            "conversations": [{
-                "task_id": "ui_capture_task",
-                "question": question,
-                "mode": "browsing" if "搜索" in answer else "chat",
-                "answer": answer,
-            }]
+            "task_id": task_id,
+            "question": question,
+            "mode": mode,
+            "search_keywords": [],
+            "search_sources": [],
+            "search_summary": search_summary,
+            "thinking_process": "",
+            "answer": answer,
+            "total_references": total_references,
+            "statistics": {
+                "sitename_counts": {},
+                "brands": [],
+                "token_usage": {
+                    "total_input_tokens": 0,
+                    "total_output_tokens": 0,
+                    "total_tokens": 0
+                }
+            }
         }
     }
     with open(path, 'w', encoding='utf-8') as f:
@@ -219,7 +242,8 @@ def main():
             print(f"\n{'─' * 50}")
             print(answer)
             print(f"{'─' * 50}\n")
-            save("(manual)", answer, out)
+            search_summary, total_refs = extract_search_info(texts)
+            save("(manual)", answer, out, search_summary, total_refs)
             print("Done ✓")
         else:
             print("[!] No AI response visible on screen yet.")
@@ -243,14 +267,14 @@ def main():
     send_message(msg)
 
     print("[4/5] Wait for AI reply...")
-    answer = wait_for_response(set(before), question=msg)
+    answer, search_summary, total_refs = wait_for_response(set(before), question=msg)
 
     if answer:
         print(f"\n{'─' * 50}")
         print(answer)
         print(f"{'─' * 50}\n")
         print("[5/5] Save JSON...")
-        save(msg, answer, out)
+        save(msg, answer, out, search_summary, total_refs)
         print("Done ✓")
     else:
         print("[!] Timeout — no AI response detected.")
