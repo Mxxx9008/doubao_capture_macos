@@ -97,7 +97,7 @@ def find_answer(before, after, question=""):
         "豆包", "快速", "打电话", "AI 创作", "视频通话", "相机", "返回",
         "反馈", "深度思考", "Seedance", "帮我写作", "聊聊新话题",
         "停止生成", "重新生成", "复制", "点赞", "点踩", "分享",
-        "继续问", "上传", "文件",
+        "继续问", "上传", "文件", "发消息", "按住说话",
     ]
     candidates = []
     for t in after:
@@ -114,17 +114,54 @@ def find_answer(before, after, question=""):
         # Skip search status text ("搜索 N 个关键词，参考 N 篇资料")
         if re.match(r'^搜索\s+\d+\s*个关键词', t):
             continue
+        # Skip clock / time patterns
+        if re.match(r'^\d{1,2}:\d{2}$', t):
+            continue
         candidates.append(t)
     return max(candidates, key=len) if candidates else None
 
 
 def extract_search_info(texts):
-    """Extract search summary and reference count from UI texts."""
-    for t in texts:
+    """Extract search summary, keywords, and reference titles from UI texts."""
+    search_summary = ""
+    total_refs = 0
+    keywords = []
+    sources = []
+
+    for i, t in enumerate(texts):
         m = re.match(r'^搜索\s+(\d+)\s*个关键词[,，]\s*参考\s+(\d+)\s*篇资料', t)
         if m:
-            return t, int(m.group(2))
-    return "", 0
+            search_summary = t
+            total_refs = int(m.group(2))
+            # Keywords are typically in the next text nodes after the summary
+            # They appear as: "keyword1"、"keyword2" in a single text node
+            for j in range(i + 1, min(i + 10, len(texts))):
+                candidate = texts[j]
+                if candidate and '“' in candidate or '"' in candidate:
+                    # Extract quoted keywords: "xxx" or “xxx”
+                    kws = re.findall(r'[“"]([^”"]+)[”"]', candidate)
+                    if kws:
+                        keywords = kws
+                        break
+            # Reference titles: numbered items after keywords
+            # Pattern: "1." "Title text" "2." "Title text" ...
+            for j in range(i + 1, len(texts)):
+                t2 = texts[j]
+                # Numbered marker like "1.", "12."
+                if re.match(r'^\d+\.\s*$', t2):
+                    # Next text node should be the title
+                    if j + 1 < len(texts):
+                        title = texts[j + 1].strip()
+                        if len(title) >= 5:
+                            sources.append({
+                                "title": title,
+                                "url": "",
+                                "sitename": "",
+                                "summary": ""
+                            })
+            break
+
+    return search_summary, total_refs, keywords, sources
 
 
 def check_already_responded(texts):
@@ -155,8 +192,12 @@ def _set_text(text):
     d = _get_d()
     el = d(resourceId="com.larus.nova:id/input_text")
     if not el.exists:
-        el.click()
-        time.sleep(0.3)
+        # Switch from voice mode to text input mode
+        toggle = d(resourceId="com.larus.nova:id/action_input")
+        if toggle.exists:
+            toggle.click()
+            time.sleep(0.5)
+    el = d(resourceId="com.larus.nova:id/input_text")
     el.set_text(text)
     time.sleep(0.2)
 
@@ -182,19 +223,33 @@ def send_message(text):
 
 
 def wait_for_response(before, timeout=TIMEOUT, question=""):
+    search_summary = ""
+    total_refs = 0
+    keywords = []
+    sources = []
     for i in range(timeout):
         time.sleep(1)
         after = get_texts()
+        # Capture search info early — it appears before the answer
+        s, tr, kw, src = extract_search_info(after)
+        if s and not search_summary:
+            search_summary, total_refs, keywords, sources = s, tr, kw, src
         ans = find_answer(before, after, question=question)
         if ans:
-            search_summary, total_refs = extract_search_info(after)
-            return ans, search_summary, total_refs
+            if not search_summary:
+                search_summary, total_refs, keywords, sources = extract_search_info(after)
+            return ans, search_summary, total_refs, keywords, sources
         if i % 10 == 0 and i > 0:
             print(f"    ... {i}s")
-    return None, "", 0
+    return None, "", 0, [], []
 
 
-def save(question, answer, path=OUTPUT, search_summary="", total_references=0):
+def save(question, answer, path=OUTPUT, search_summary="", total_references=0,
+         search_keywords=None, search_sources=None):
+    if search_keywords is None:
+        search_keywords = []
+    if search_sources is None:
+        search_sources = []
     task_id = secrets.token_hex(6)
     mode = "quick" if search_summary else "chat"
 
@@ -205,8 +260,8 @@ def save(question, answer, path=OUTPUT, search_summary="", total_references=0):
             "task_id": task_id,
             "question": question,
             "mode": mode,
-            "search_keywords": [],
-            "search_sources": [],
+            "search_keywords": search_keywords,
+            "search_sources": search_sources,
             "search_summary": search_summary,
             "thinking_process": "",
             "answer": answer,
@@ -242,8 +297,8 @@ def main():
             print(f"\n{'─' * 50}")
             print(answer)
             print(f"{'─' * 50}\n")
-            search_summary, total_refs = extract_search_info(texts)
-            save("(manual)", answer, out, search_summary, total_refs)
+            search_summary, total_refs, keywords, sources = extract_search_info(texts)
+            save("(manual)", answer, out, search_summary, total_refs, keywords, sources)
             print("Done ✓")
         else:
             print("[!] No AI response visible on screen yet.")
@@ -267,14 +322,14 @@ def main():
     send_message(msg)
 
     print("[4/5] Wait for AI reply...")
-    answer, search_summary, total_refs = wait_for_response(set(before), question=msg)
+    answer, search_summary, total_refs, keywords, sources = wait_for_response(set(before), question=msg)
 
     if answer:
         print(f"\n{'─' * 50}")
         print(answer)
         print(f"{'─' * 50}\n")
         print("[5/5] Save JSON...")
-        save(msg, answer, out, search_summary, total_refs)
+        save(msg, answer, out, search_summary, total_refs, keywords, sources)
         print("Done ✓")
     else:
         print("[!] Timeout — no AI response detected.")
