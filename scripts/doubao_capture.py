@@ -98,6 +98,7 @@ def find_answer(before, after, question=""):
         "反馈", "深度思考", "Seedance", "帮我写作", "聊聊新话题",
         "停止生成", "重新生成", "复制", "点赞", "点踩", "分享",
         "继续问", "上传", "文件", "发消息", "按住说话",
+        "中国电信", "信号满格", "已连接到",
     ]
     candidates = []
     for t in after:
@@ -122,46 +123,71 @@ def find_answer(before, after, question=""):
 
 
 def extract_search_info(texts):
-    """Extract search summary, keywords, and reference titles from UI texts."""
+    """Extract search summary, keywords, and reference sources from UI.
+    Uses uiautomator2 selectors for titles, text parsing for keywords/summary.
+    URL cannot be extracted at Level A (embedded in link properties)."""
+
     search_summary = ""
     total_refs = 0
     keywords = []
     sources = []
 
+    # 1. Parse search summary and keywords from text list
     for i, t in enumerate(texts):
         m = re.match(r'^搜索\s+(\d+)\s*个关键词[,，]\s*参考\s+(\d+)\s*篇资料', t)
         if m:
             search_summary = t
             total_refs = int(m.group(2))
-            # Keywords are typically in the next text nodes after the summary
-            # They appear as: "keyword1"、"keyword2" in a single text node
-            for j in range(i + 1, min(i + 10, len(texts))):
+            for j in range(i + 1, min(i + 15, len(texts))):
                 candidate = texts[j]
-                if candidate and '“' in candidate or '"' in candidate:
-                    # Extract quoted keywords: "xxx" or “xxx”
-                    kws = re.findall(r'[“"]([^”"]+)[”"]', candidate)
-                    if kws:
+                # Keywords appear as “kw1”、”kw2” — must have quotes AND 、 separator
+                if candidate and ('”' in candidate or '”' in candidate) and '、' in candidate:
+                    kws = re.findall(r'[“\”]([^”\”]+?)[“\”]', candidate)
+                    if kws and len(kws) >= 1:
                         keywords = kws
                         break
-            # Reference titles: numbered items after keywords
-            # Pattern: "1." "Title text" "2." "Title text" ...
-            for j in range(i + 1, len(texts)):
-                t2 = texts[j]
-                # Numbered marker like "1.", "12."
-                if re.match(r'^\d+\.\s*$', t2):
-                    # Next text node should be the title
-                    if j + 1 < len(texts):
-                        title = texts[j + 1].strip()
-                        if len(title) >= 5:
-                            sources.append({
-                                "title": title,
-                                "url": "",
-                                "sitename": "",
-                                "summary": ""
-                            })
             break
 
+    # 2. Extract reference titles via uiautomator2 selector
+    if search_summary:
+        try:
+            d = _get_d()
+            refs = d(resourceId="com.larus.nova:id/tv_reference_content")
+            if refs.exists:
+                for ref in refs:
+                    title = (ref.info.get("text") or "").strip()
+                    if title and len(title) >= 3:
+                        sitename = _parse_sitename(title)
+                        sources.append({
+                            "title": title,
+                            "url": "",
+                            "sitename": sitename,
+                            "summary": ""
+                        })
+        except Exception:
+            pass
+
     return search_summary, total_refs, keywords, sources
+
+
+def _parse_sitename(title):
+    """Try to extract sitename from title.
+    Common patterns: 'title_sitename', 'title-sitename', 'title|sitename'.
+    Only returns sitename if it looks like a known source."""
+    known_sources = [
+        "新京报", "北京日报", "京报网", "证券日报", "金台资讯", "北青热点",
+        "千龙网", "今日头条", "手机搜狐网", "抖音", "知乎", "澎湃新闻",
+        "新浪", "凤凰网", "腾讯新闻", "网易新闻", "哔哩哔哩", "人民日报",
+        "新华网", "光明网", "环球网", "中国新闻网", "中国青年网",
+        "广东能飞航空", "全国团体标准信息平台", "中国民航无人机执照",
+    ]
+    for sep in ["_", "-", "|"]:
+        if sep in title:
+            last_part = title.rsplit(sep, 1)[-1].strip()
+            for src in known_sources:
+                if src in last_part:
+                    return src
+    return ""
 
 
 def check_already_responded(texts):
@@ -230,7 +256,7 @@ def wait_for_response(before, timeout=TIMEOUT, question=""):
     for i in range(timeout):
         time.sleep(1)
         after = get_texts()
-        # Capture search info early — it appears before the answer
+        # Capture search summary early (keywords/sources may be collapsed)
         s, tr, kw, src = extract_search_info(after)
         if s and not search_summary:
             search_summary, total_refs, keywords, sources = s, tr, kw, src
@@ -242,6 +268,32 @@ def wait_for_response(before, timeout=TIMEOUT, question=""):
         if i % 10 == 0 and i > 0:
             print(f"    ... {i}s")
     return None, "", 0, [], []
+
+
+def capture_references_post(answer):
+    """After answer is captured, try to expand and capture reference cards."""
+    time.sleep(1)  # Let UI settle
+    _expand_references()
+    _, _, keywords, sources = extract_search_info(get_texts())
+    if sources:
+        return keywords, sources
+    # If expand+extract didn't get sources, try extracting from current text
+    _, _, kw2, src2 = extract_search_info(get_texts())
+    return kw2, src2
+
+
+def _expand_references():
+    """Tap the reference title to expand the collapsed reference card list."""
+    try:
+        d = _get_d()
+        # The search summary has resourceId tv_reference_title and is tappable
+        title = d(resourceId="com.larus.nova:id/tv_reference_title")
+        if title.exists:
+            x, y = title.center()
+            d.click(x, y)
+            time.sleep(0.5)
+    except Exception:
+        pass
 
 
 def save(question, answer, path=OUTPUT, search_summary="", total_references=0,
@@ -328,6 +380,12 @@ def main():
         print(f"\n{'─' * 50}")
         print(answer)
         print(f"{'─' * 50}\n")
+        # After answer, try to expand and capture reference details
+        if search_summary and not sources:
+            kw2, src2 = capture_references_post(answer)
+            if src2:
+                keywords, sources = kw2, src2
+                total_refs = len(src2) if src2 else total_refs
         print("[5/5] Save JSON...")
         save(msg, answer, out, search_summary, total_refs, keywords, sources)
         print("Done ✓")
