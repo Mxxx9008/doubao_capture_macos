@@ -32,15 +32,20 @@ python3 doubao_capture.py "你的问题"
 ## 目录结构
 
 ```
-doubao_capture_macos/
+doubao_capture/
 ├── README.md
-├── scripts/
-│   └── doubao_capture.py              # 主抓取脚本
+├── doubao_capture.py              # 主抓取脚本
+├── find_coords.py                 # UI 坐标探测工具
+├── extract_references.py          # 参考数据提取
+├── frida_ssl_bypass_v2.js         # Java SSL Pinning 绕过
+├── frida_native_ssl_v6.js         # 原生 SSL 层监控
+├── frida_cronet_hook_v6.js        # Cronet Java 层 hook
 ├── docs/
-│   ├── capture_summery.md             # 项目进度总结
-│   └── doubao_capture_usage.md        # 详细使用说明
+│   ├── capture_summery.md         # 项目进度总结
+│   ├── doubao_capture_usage.md    # 详细使用说明
+│   └── doubao_capture_mac.md      # 技术分析文档
 └── output/
-    └── doubao_news_capture.json       # 抓取结果示例
+    └── doubao_news_capture.json   # 抓取结果示例
 ```
 
 ## CLI
