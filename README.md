@@ -2,24 +2,32 @@
 
 Mac + Android 设备环境下，抓取豆包 App 聊天内容并生成结构化 JSON。
 
-**Level A (UI 文本提取)** — 已适配 Pixel 6 Pro 真机，稳定运行。
-
 ## 快速开始
 
 ```bash
-# 1. 一次性初始化 uiautomator2
-/tmp/u2env/bin/pip install uiautomator2
-/tmp/u2env/bin/python3 -m uiautomator2 init
+# 1. 一次性初始化
+pip install uiautomator2
+python3 -m uiautomator2 init
 
-# 2. 确保手机已连接、豆包已打开
-adb devices  # 确认设备已连接
+# 2. 手机已连接 + USB 调试开启
+adb devices
 
-# 3. 运行抓取
-cd scripts
-/tmp/u2env/bin/python3 doubao_capture.py "你的问题"
+# 3. 抓取
+cd ~/Desktop/doubao_capture
+python3 doubao_capture.py "你的问题"
 
-# 输出文件: ~/Desktop/doubao_capture.json
+# 输出: ~/Desktop/doubao_capture.json
 ```
+
+## 功能矩阵
+
+| 功能 | 手机 (Pixel 6 Pro) | 模拟器 |
+|------|-------------------|--------|
+| AI 回答文本 | ✅ | ✅ |
+| 搜索关键词 | ✅ | ✅ |
+| 参考来源标题 + 站点名 | ✅ | ✅ |
+| 参考来源 URL | ❌ (UI 版本差异) | ✅ (`--frida`) |
+| 参考内容 Summary | ❌ | ❌ |
 
 ## 目录结构
 
@@ -27,56 +35,73 @@ cd scripts
 doubao_capture_macos/
 ├── README.md
 ├── scripts/
-│   ├── doubao_capture.py          # 主抓取脚本 (Level A, uiautomator2)
-│   ├── find_coords.py             # UI 坐标探测工具
-│   ├── frida_ssl_bypass_v2.js     # Java SSL Pinning 绕过 (Level B)
-│   ├── frida_native_ssl_v6.js     # 原生 SSL 层监控 (Level B)
-│   ├── frida_cronet_hook_v6.js    # Cronet Java 层 hook (Level B, 实验)
-│   └── extract_references.py      # 从 mitmproxy 数据提取引用
+│   └── doubao_capture.py              # 主抓取脚本
 ├── docs/
-│   ├── capture_summery.md         # 项目进度总结
-│   ├── doubao_capture_mac.md      # 技术分析文档
-│   └── doubao_capture_usage.md    # 详细使用说明
+│   ├── capture_summery.md             # 项目进度总结
+│   └── doubao_capture_usage.md        # 详细使用说明
 └── output/
-    └── doubao_news_capture.json   # 抓取结果示例
+    └── doubao_news_capture.json       # 抓取结果示例
 ```
 
-## 已支持的设备
+## CLI
 
-| 设备 | 状态 | 备注 |
-|------|------|------|
-| Pixel 6 Pro (Android 16) | 已验证 | 真机，主力测试设备 |
-| Android 模拟器 | 已验证 | ARM64, Android 13+ |
+```bash
+# 文本抓取 (Level A) — 手机/模拟器通用
+python3 doubao_capture.py "你的问题"
 
-## 已验证的问答类型
+# URL 抓取 (Level B) — 仅模拟器
+python3 doubao_capture.py "你的问题" --frida
 
-| 类型 | 示例 | 输出 |
-|------|------|------|
-| 短回答 | `7乘8等于几` | `7×8=56` |
-| 英文 | `What is the capital of Japan?` | `Tokyo` |
-| 知识问答 | `地球的直径是多少` | 详细数据 |
-| 搜索模式 | `2025年诺贝尔物理学奖得主是谁` | 完整信息+来源 |
+# 仅抓取当前屏幕（不发消息）
+python3 doubao_capture.py
+```
+
+## 输出格式
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "question": "今天科技圈有什么大新闻",
+    "search_summary": "搜索 2 个关键词，参考 12 篇资料",
+    "search_keywords": ["AI芯片", "科技新闻"],
+    "search_sources": [
+      {
+        "title": "估值近万亿，AI 巨头 Anthropic 完成最后一轮私募融资_环球网",
+        "url": "",
+        "sitename": "环球网",
+        "summary": ""
+      }
+    ],
+    "answer": "5月29日 科技圈重磅大新闻...",
+    "total_references": 12
+  }
+}
+```
 
 ## 环境要求
 
 - macOS
-- Android 设备 (真机或模拟器)
 - Python 3.10+
-- uiautomator2
-- ADB
+- ADB + uiautomator2
+- Android 设备 (真机或模拟器)
 
 ## 工作原理
 
-### Level A: UI 文本提取 (当前方案)
+### Level A: UI 文本提取
 
-通过 `uiautomator2.dump_hierarchy()` 实时读取屏幕 UI 树，检测新出现的 AI 回复文本。每次运行前重启 App 确保视图状态干净，过滤流式输出光标 ⚫ 和搜索状态文字。
+通过 `uiautomator2.dump_hierarchy()` 读取屏幕 UI 树，检测 AI 回复文本，展开参考卡片获取标题和站点名。每次运行前重启 App 确保干净状态。
 
-### Level B: 网络层抓取 (进行中)
+### Level B: Frida WebView URL 抓取
 
-豆包使用字节跳动自研网络栈（`libttboringssl.so` + `libsscronet.so`）走 QUIC/HTTP3 协议，传统 TLS 中间人方案无法解密 Chat API。详见 `docs/capture_summery.md`。
+Frida hook `android.webkit.WebView.loadUrl()` 拦截参考链接的 URL。模拟器上已验证 100% 可靠。手机版 Doubao UI 不同，参考卡片为内联 `[__LINK_ICON]` 标记，暂不支持。
 
 ## 踩坑记录
 
-1. **ADB `uiautomator dump` 数据过期** — Pixel 6 Pro 上返回缓存数据，切到 uiautomator2 API 解决
-2. **RecyclerView 不刷新** — 多次运行后视图卡死，每次捕获前 `force-stop` + 重启 App
-3. **自定义 ChatInputText** — 标准 `adb input text` 无效，必须用 uiautomator2 的 `set_text`
+1. **ADB `uiautomator dump` 数据过期** — Pixel 6 Pro 上返回缓存数据，切 uiautomator2 API 解决
+2. **RecyclerView 回收** — 参考区被回收导致 `search_sources` 为空，修复为先抓参考再打印长文本
+3. **锁屏干扰** — 抓取过程手机自动锁屏，加入 `wm dismiss-keyguard` 自动解除
+4. **系统通知误判** — "正在充电"等通知被误认为 AI 回复，加最小 80 字符过滤
+5. **手机/模拟器 UI 差异** — 不同版本 Doubao 的 resource ID 和参考区布局不同
+6. **Frida spawn 被反检测** — 改用 monkey 启动 + PID attach 方式挂载

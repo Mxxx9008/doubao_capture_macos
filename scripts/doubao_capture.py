@@ -5,8 +5,9 @@ Send a message → wait for AI reply → save structured JSON.
 
 Usage:
   python3 doubao_capture.py "你的问题"
-  python3 doubao_capture.py "What's the weather?"
-  python3 doubao_capture.py "问题" /path/to/output.json
+  python3 doubao_capture.py "问题" --frida          # with URL capture
+  python3 doubao_capture.py "问题" /path/to/out.json --frida
+  python3 doubao_capture.py --frida                  # manual capture + URLs
 
 Setup (one-time):
   /tmp/u2env/bin/pip install uiautomator2
@@ -31,9 +32,91 @@ except ImportError:
 
 # ── Configuration ──────────────────────────────────────────────
 ADB = os.path.expanduser("~/Library/Android/sdk/platform-tools/adb")
+DEVICE = "19161FDEE0J82D"  # Android device/emulator serial
 OUTPUT = os.path.expanduser("~/Desktop/doubao_capture.json")
 TIMEOUT = 120
 PACKAGE = "com.larus.nova"
+
+# ── Frida WebView URL hook ─────────────────────────────────────
+FRIDA_SCRIPT = "/tmp/frida_webview_url_v2.js"
+_frida_proc = None
+_frida_output = "/tmp/frida_capture_output.txt"
+
+
+def _start_frida():
+    """Launch Frida with WebView hook script against Doubao."""
+    global _frida_proc
+    subprocess.run(["pkill", "-f", "frida.*larus"],
+                   capture_output=True)
+    subprocess.run([ADB, "-s", DEVICE, "shell", "am", "force-stop", PACKAGE],
+                   capture_output=True)
+    time.sleep(1)
+    # Start app via monkey, then attach by PID (more reliable than -n on Android 16)
+    subprocess.run([ADB, "-s", DEVICE, "shell", "monkey", "-p", PACKAGE, "1"],
+                   capture_output=True)
+    time.sleep(4)
+    _ensure_unlocked()
+    result = subprocess.run([ADB, "-s", DEVICE, "shell", "pidof", PACKAGE],
+                            capture_output=True, text=True)
+    pid = result.stdout.strip()
+    if not pid:
+        print("  [!] App didn't start")
+        return False
+    with open(_frida_output, 'w') as f:
+        _frida_proc = subprocess.Popen(
+            ["frida", "-D", DEVICE, "-p", pid, "-l", FRIDA_SCRIPT],
+            stdout=f, stderr=subprocess.STDOUT
+        )
+    # Wait for hooks to install
+    for _ in range(15):
+        time.sleep(1)
+        try:
+            with open(_frida_output) as f:
+                content = f.read()
+                if 'All hooks installed' in content:
+                    return True
+                if 'Process terminated' in content:
+                    print("  [!] Process died — app may have anti-Frida protection")
+                    return False
+        except Exception:
+            pass
+    return False
+
+
+def _stop_frida():
+    """Kill the Frida subprocess."""
+    global _frida_proc
+    if _frida_proc:
+        _frida_proc.terminate()
+        try:
+            _frida_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _frida_proc.kill()
+        _frida_proc = None
+
+
+def _read_frida_output():
+    """Read current Frida output file."""
+    try:
+        with open(_frida_output) as f:
+            return f.read()
+    except Exception:
+        return ""
+
+
+def _parse_new_urls(baseline_text, new_text):
+    """Extract newly captured non-js, non-seclink WebView.loadUrl lines."""
+    old_urls = set(re.findall(
+        r'\[WebView\.loadUrl\] (?!javascript:)(.+?)(?:\n|$)',
+        baseline_text
+    ))
+    new_urls = re.findall(
+        r'\[WebView\.loadUrl\] (?!javascript:)(.+?)(?:\n|$)',
+        new_text
+    )
+    return [u for u in new_urls
+            if u not in old_urls and 'seclink.bytedance.com' not in u]
+
 
 # ── uiautomator2 device handle ─────────────────────────────────
 _d = None
@@ -45,21 +128,31 @@ def _get_d():
         if not _HAS_U2:
             print("[!] uiautomator2 not installed. See script header for setup.")
             sys.exit(1)
-        _d = u2.connect()
+        _d = u2.connect(DEVICE)
     return _d
 
 
 # ── App lifecycle ──────────────────────────────────────────────
 
+def _ensure_unlocked():
+    """Dismiss Android lock screen if present."""
+    subprocess.run([ADB, "-s", DEVICE, "shell", "wm", "dismiss-keyguard"],
+                   capture_output=True)
+    subprocess.run([ADB, "-s", DEVICE, "shell", "input", "swipe", "540", "2900", "540", "100", "500"],
+                   capture_output=True)
+    time.sleep(1)
+
+
 def restart_app():
     """Restart Doubao to ensure a clean RecyclerView state."""
-    subprocess.run([ADB, "shell", "am", "force-stop", PACKAGE],
+    subprocess.run([ADB, "-s", DEVICE, "shell", "am", "force-stop", PACKAGE],
                    capture_output=True, text=True)
     time.sleep(1.5)
-    subprocess.run([ADB, "shell", "monkey", "-p", PACKAGE,
+    subprocess.run([ADB, "-s", DEVICE, "shell", "monkey", "-p", PACKAGE,
                     "-c", "android.intent.category.LAUNCHER", "1"],
                    capture_output=True, text=True)
     time.sleep(5)
+    _ensure_unlocked()
     global _d
     _d = None
 
@@ -99,11 +192,12 @@ def find_answer(before, after, question=""):
         "停止生成", "重新生成", "复制", "点赞", "点踩", "分享",
         "继续问", "上传", "文件", "发消息", "按住说话",
         "中国电信", "信号满格", "已连接到",
+        "正在充电", "已充满电", "点按即可", "USB 调试",
     ]
     candidates = []
     for t in after:
         t = t.strip()
-        if not t or t in before_set or len(t) < 5:
+        if not t or t in before_set or len(t) < 80:
             continue
         if t == question or (len(t) < 30 and t in question):
             continue
@@ -124,35 +218,71 @@ def find_answer(before, after, question=""):
 
 def extract_search_info(texts):
     """Extract search summary, keywords, and reference sources from UI.
-    Uses uiautomator2 selectors for titles, text parsing for keywords/summary.
-    URL cannot be extracted at Level A (embedded in link properties)."""
+    Uses uiautomator2 selectors + text parsing."""
 
     search_summary = ""
     total_refs = 0
     keywords = []
     sources = []
 
-    # 1. Parse search summary and keywords from text list
+    try:
+        d = _get_d()
+
+        # 1. Get reference title via uiautomator2 selector
+        ref_title = d(resourceId="com.larus.nova:id/tv_reference_title")
+        if ref_title.exists:
+            search_summary = (ref_title.info.get("text") or "").strip()
+            m = re.match(r'^搜索\s+(\d+)\s*个关键词[,，]\s*参考\s+(\d+)\s*篇资料',
+                         search_summary)
+            if m:
+                total_refs = int(m.group(2))
+    except Exception:
+        pass
+
+    # 2. Fallback: parse from text dump
+    if not search_summary:
+        for i, t in enumerate(texts):
+            m = re.match(r'^搜索\s+(\d+)\s*个关键词[,，]\s*参考\s+(\d+)\s*篇资料', t)
+            if m:
+                search_summary = t
+                total_refs = int(m.group(2))
+                break
+
+    # 3. Parse keywords from text list (adjacent to search summary)
     for i, t in enumerate(texts):
-        m = re.match(r'^搜索\s+(\d+)\s*个关键词[,，]\s*参考\s+(\d+)\s*篇资料', t)
-        if m:
-            search_summary = t
-            total_refs = int(m.group(2))
+        if t == search_summary:
             for j in range(i + 1, min(i + 15, len(texts))):
                 candidate = texts[j]
-                # Keywords appear as “kw1”、”kw2” — must have quotes AND 、 separator
-                if candidate and ('”' in candidate or '”' in candidate) and '、' in candidate:
-                    kws = re.findall(r'[“\”]([^”\”]+?)[“\”]', candidate)
+                if candidate and ('“' in candidate or '”' in candidate) and '、' in candidate:
+                    kws = re.findall(r'[“”]([^“”]+?)[“”]', candidate)
                     if kws and len(kws) >= 1:
                         keywords = kws
                         break
             break
 
-    # 2. Extract reference titles via uiautomator2 selector
+    # 4. Extract reference titles via uiautomator2 selector
     if search_summary:
         try:
             d = _get_d()
+            # Only expand if references aren't already visible
             refs = d(resourceId="com.larus.nova:id/tv_reference_content")
+            if not refs.exists:
+                ref_clickable = d(resourceId="com.larus.nova:id/ll_reference_title")
+                # Scroll up if reference toggle is off-screen (RecyclerView may have recycled it)
+                for _ in range(8):
+                    if ref_clickable.exists:
+                        break
+                    d.swipe(540, 800, 540, 1800, 0.2)
+                    time.sleep(0.3)
+                if ref_clickable.exists:
+                    ref_clickable.click()
+                    # Wait for expansion animation
+                    for _ in range(10):
+                        time.sleep(0.3)
+                        refs = d(resourceId="com.larus.nova:id/tv_reference_content")
+                        if refs.exists:
+                            break
+
             if refs.exists:
                 for ref in refs:
                     title = (ref.info.get("text") or "").strip()
@@ -216,14 +346,24 @@ def check_already_responded(texts):
 
 def _set_text(text):
     d = _get_d()
-    el = d(resourceId="com.larus.nova:id/input_text")
-    if not el.exists:
+    # Find EditText by class (resourceId varies across Doubao versions)
+    for attempt in range(5):
+        el = d(className="android.widget.EditText")
+        if el.exists:
+            break
+        # Try phone-version resource ID
+        el = d(resourceId="com.larus.nova:id/input_text")
+        if el.exists:
+            break
         # Switch from voice mode to text input mode
         toggle = d(resourceId="com.larus.nova:id/action_input")
         if toggle.exists:
             toggle.click()
             time.sleep(0.5)
-    el = d(resourceId="com.larus.nova:id/input_text")
+        time.sleep(1.5)
+    el = d(className="android.widget.EditText")
+    if not el.exists:
+        el = d(resourceId="com.larus.nova:id/input_text")
     el.set_text(text)
     time.sleep(0.2)
 
@@ -234,13 +374,37 @@ def _click_send():
     if btn.exists:
         btn.click()
     else:
-        d(description="发送").click()
+        try:
+            d(description="发送").click()
+        except Exception:
+            subprocess.run([ADB, "-s", DEVICE, "shell", "input", "keyevent", "66"], capture_output=True)
 
 
 # ── Core flow ──────────────────────────────────────────────────
 
 def send_message(text):
     print(f"[*] Sending: {text[:80]}{'...' if len(text) > 80 else ''}")
+    _ensure_unlocked()
+    d = _get_d()
+
+    # Ensure we're in ChatActivity, not on the main conversation list
+    cur = d.app_current()
+    if 'ChatActivity' not in cur.get('activity', ''):
+        # Click on an existing conversation to enter chat
+        for conv_text in ['doubao.com', '豆包']:
+            conv = d(text=conv_text)
+            if conv.exists:
+                x, y = conv.center()
+                d.click(x, y)
+                time.sleep(1.5)
+                break
+        else:
+            # Tap the first visible text area as fallback
+            d.click(540, 400)
+            time.sleep(1.5)
+
+    # Wait a moment for UI to settle after navigation
+    time.sleep(1)
     _set_text(text)
     time.sleep(0.3)
     _click_send()
@@ -283,25 +447,96 @@ def capture_references_post(answer):
 
 
 def _expand_references():
-    """Tap the reference title to expand the collapsed reference card list."""
+    """Tap the reference title to expand the collapsed reference card list.
+    Scrolls up first to ensure the reference area is visible (not recycled by RecyclerView)."""
     try:
         d = _get_d()
-        # The search summary has resourceId tv_reference_title and is tappable
-        title = d(resourceId="com.larus.nova:id/tv_reference_title")
-        if title.exists:
-            x, y = title.center()
-            d.click(x, y)
-            time.sleep(0.5)
+        # Check if already expanded
+        refs = d(resourceId="com.larus.nova:id/tv_reference_content")
+        if refs.exists:
+            return
+        # Scroll up to find the reference toggle (it's near the top of the AI message)
+        wrapper = d(resourceId="com.larus.nova:id/ll_reference_title")
+        for _ in range(8):
+            if wrapper.exists:
+                break
+            d.swipe(540, 800, 540, 1800, 0.2)
+            time.sleep(0.3)
+        if wrapper.exists:
+            wrapper.click()
+            # Wait for expansion animation
+            for _ in range(10):
+                time.sleep(0.3)
+                refs = d(resourceId="com.larus.nova:id/tv_reference_content")
+                if refs.exists:
+                    time.sleep(0.2)
+                    return
     except Exception:
         pass
 
 
+def _capture_urls(source_count):
+    """Click each reference card and capture URLs from Frida output.
+    Returns list of URLs in same order as reference indices."""
+    d = _get_d()
+    urls = []
+
+    # Ensure references are expanded
+    refs = d(resourceId="com.larus.nova:id/tv_reference_content")
+    if refs.count == 0:
+        _expand_references()
+        time.sleep(1)
+
+    baseline = _read_frida_output()
+
+    for i in range(source_count):
+        refs = d(resourceId="com.larus.nova:id/tv_reference_content")
+        if i >= refs.count:
+            print(f"  [!] Reference [{i}] not found, stopping URL capture")
+            break
+
+        title = refs[i].get_text()
+        print(f"  [{i}] {title[:50]}...")
+        refs[i].click()
+        time.sleep(2.5)
+
+        # Read new Frida output and extract new URLs
+        new_output = _read_frida_output()
+        new_urls = _parse_new_urls(baseline, new_output)
+        if new_urls:
+            urls.append(new_urls[0])
+        else:
+            urls.append("")
+
+        baseline = new_output
+
+        # Go back
+        d.press("back")
+        time.sleep(1.5)
+
+        # Re-expand references if they collapsed
+        refs_check = d(resourceId="com.larus.nova:id/tv_reference_content")
+        if refs_check.count == 0:
+            _expand_references()
+            time.sleep(1)
+
+    return urls
+
+
 def save(question, answer, path=OUTPUT, search_summary="", total_references=0,
-         search_keywords=None, search_sources=None):
+         search_keywords=None, search_sources=None, captured_urls=None):
     if search_keywords is None:
         search_keywords = []
     if search_sources is None:
         search_sources = []
+    if captured_urls is None:
+        captured_urls = []
+
+    # Populate URLs into sources
+    for i, src in enumerate(search_sources):
+        if i < len(captured_urls) and captured_urls[i]:
+            src["url"] = captured_urls[i]
+
     task_id = secrets.token_hex(6)
     mode = "quick" if search_summary else "chat"
 
@@ -331,41 +566,90 @@ def save(question, answer, path=OUTPUT, search_summary="", total_references=0,
     }
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    print(f"[*] Saved → {path}")
+    url_count = len([s for s in search_sources if s.get("url")])
+    print(f"[*] Saved → {path}  ({url_count}/{len(search_sources)} URLs captured)")
 
 
 # ── CLI ────────────────────────────────────────────────────────
 
 def main():
-    if len(sys.argv) < 2:
-        out = OUTPUT
+    # Parse --frida flag and positional args
+    use_frida = False
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if "--frida" in sys.argv:
+        use_frida = True
+
+    msg = args[0] if len(args) > 0 else None
+    out = args[1] if len(args) > 1 else OUTPUT
+
+    # ── Mode: no message → manual capture from current screen ──
+    if msg is None:
         print("=" * 55)
-        print("  Mode: Capture only (manual send)")
+        mode_label = "Frida" if use_frida else "Text-only"
+        print(f"  Mode: Capture only ({mode_label})")
         print(f"  Output: {out}")
         print("=" * 55)
+
+        if use_frida:
+            print("[*] Starting Frida...")
+            if not _start_frida():
+                print("[!] Frida failed to start, falling back to text-only")
+                use_frida = False
+            else:
+                print("[*] Frida ready, hooks active")
+                # Need to wait for app to settle
+                time.sleep(3)
+
         texts = get_texts()
         answer = check_already_responded(texts)
         if answer:
             print(f"\n{'─' * 50}")
             print(answer)
             print(f"{'─' * 50}\n")
-            search_summary, total_refs, keywords, sources = extract_search_info(texts)
-            save("(manual)", answer, out, search_summary, total_refs, keywords, sources)
+            # Try to expand references and capture details
+            kw2, src2 = capture_references_post(answer)
+            if src2:
+                keywords, sources = kw2, src2
+                search_summary, total_refs, _, _ = extract_search_info(get_texts())
+            else:
+                search_summary, total_refs, keywords, sources = extract_search_info(texts)
+            captured_urls = []
+            if use_frida and sources:
+                print(f"[*] Capturing URLs for {len(sources)} references...")
+                captured_urls = _capture_urls(len(sources))
+            save("(manual)", answer, out, search_summary, total_refs,
+                 keywords, sources, captured_urls)
             print("Done ✓")
         else:
             print("[!] No AI response visible on screen yet.")
+        if use_frida:
+            _stop_frida()
         return
 
-    msg = sys.argv[1]
-    out = sys.argv[2] if len(sys.argv) > 2 else OUTPUT
-
+    # ── Mode: automated send + capture ──
     print("=" * 55)
+    mode_label = "Frida" if use_frida else "Text-only"
     print(f"  Message: {msg}")
     print(f"  Output:  {out}")
+    print(f"  Mode:    {mode_label}")
     print("=" * 55)
 
-    print("[1/5] Restart app (clean state)...")
-    restart_app()
+    if use_frida:
+        print("[1/6] Start Frida + Doubao...")
+        if not _start_frida():
+            print("[!] Frida failed — falling back to text-only")
+            use_frida = False
+            print("[1/5] Restart app (clean state)...")
+            restart_app()
+        else:
+            print("[*] Frida ready, hooks active")
+            # App is already spawned by Frida, just wait for UI
+            time.sleep(3)
+            global _d
+            _d = None
+    else:
+        print("[1/5] Restart app (clean state)...")
+        restart_app()
 
     print("[2/5] Snapshot...")
     before = get_texts()
@@ -373,24 +657,49 @@ def main():
     print("[3/5] Send message...")
     send_message(msg)
 
-    print("[4/5] Wait for AI reply...")
-    answer, search_summary, total_refs, keywords, sources = wait_for_response(set(before), question=msg)
+    step = "5" if use_frida else "4"
+    print(f"[4/{step}] Wait for AI reply...")
+    answer, search_summary, total_refs, keywords, sources = wait_for_response(
+        set(before), question=msg
+    )
 
     if answer:
-        print(f"\n{'─' * 50}")
-        print(answer)
-        print(f"{'─' * 50}\n")
-        # After answer, try to expand and capture reference details
-        if search_summary and not sources:
+        # Capture references BEFORE printing (printing long answers
+        # takes seconds; RecyclerView may recycle the reference section)
+        if not sources:
             kw2, src2 = capture_references_post(answer)
             if src2:
                 keywords, sources = kw2, src2
                 total_refs = len(src2) if src2 else total_refs
-        print("[5/5] Save JSON...")
-        save(msg, answer, out, search_summary, total_refs, keywords, sources)
+        # Re-extract search_summary if missing (may have been missed during streaming)
+        if not search_summary:
+            s2, tr2, kw2, src2 = extract_search_info(get_texts())
+            if s2:
+                search_summary = s2
+                total_refs = tr2 if tr2 else total_refs
+                if src2:
+                    keywords, sources = kw2, src2
+        print(f"\n{'─' * 50}")
+        print(answer)
+        print(f"{'─' * 50}\n")
+
+        captured_urls = []
+        if use_frida and sources:
+            print(f"[5/6] Capture URLs for {len(sources)} references...")
+            captured_urls = _capture_urls(len(sources))
+            captured = len([u for u in captured_urls if u])
+            print(f"  Captured {captured}/{len(sources)} URLs")
+
+        final_step = "6" if use_frida else "5"
+        print(f"[{final_step}/{final_step}] Save JSON...")
+        save(msg, answer, out, search_summary, total_refs,
+             keywords, sources, captured_urls)
         print("Done ✓")
     else:
         print("[!] Timeout — no AI response detected.")
+
+    if use_frida:
+        _stop_frida()
 
 
 if __name__ == "__main__":
