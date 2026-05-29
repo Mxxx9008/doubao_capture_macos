@@ -436,89 +436,165 @@ def wait_for_response(before, timeout=TIMEOUT, question=""):
 
 def capture_references_post(answer):
     """After answer is captured, try to expand and capture reference cards."""
-    time.sleep(1)  # Let UI settle
-    _expand_references()
+    time.sleep(1)
+    _ensure_refs_visible()
     _, _, keywords, sources = extract_search_info(get_texts())
     if sources:
         return keywords, sources
-    # If expand+extract didn't get sources, try extracting from current text
     _, _, kw2, src2 = extract_search_info(get_texts())
     return kw2, src2
 
 
-def _expand_references():
-    """Tap the reference title to expand the collapsed reference card list.
-    Scrolls up first to ensure the reference area is visible (not recycled by RecyclerView)."""
-    try:
-        d = _get_d()
-        # Check if already expanded
+def _adb_swipe(x1, y1, x2, y2, duration_ms=200):
+    """Use ADB input swipe (more reliable than uiautomator2 on some devices)."""
+    subprocess.run(
+        [ADB, "-s", DEVICE, "shell", "input", "swipe",
+         str(x1), str(y1), str(x2), str(y2), str(duration_ms)],
+        capture_output=True)
+
+
+def _adb_tap(x, y):
+    subprocess.run(
+        [ADB, "-s", DEVICE, "shell", "input", "tap", str(x), str(y)],
+        capture_output=True)
+
+
+def _click_toggle_safe():
+    """Click the reference toggle using coordinates (avoids RecyclerView
+    recycling between exists check and click)."""
+    d = _get_d()
+    toggle = d(resourceId="com.larus.nova:id/ll_reference_title")
+    if not toggle.exists:
+        return False
+    info = toggle.info
+    bounds = info.get('bounds', {})
+    cx = (bounds.get('left', 0) + bounds.get('right', 0)) // 2
+    cy = (bounds.get('top', 0) + bounds.get('bottom', 0)) // 2
+    _adb_tap(cx, cy)
+    return True
+
+
+def _ensure_refs_visible():
+    """Make reference cards visible. Returns count of visible cards, or 0."""
+    d = _get_d()
+
+    # Already expanded?
+    refs = d(resourceId="com.larus.nova:id/tv_reference_content")
+    if refs.exists:
+        return refs.count
+
+    # Check if toggle is immediately visible — use ADB tap to avoid
+    # RecyclerView recycling between the exists check and click
+    if _click_toggle_safe():
+        for _ in range(15):
+            time.sleep(0.3)
+            refs = d(resourceId="com.larus.nova:id/tv_reference_content")
+            if refs.exists:
+                time.sleep(0.3)
+                return refs.count
+        return 0
+
+    # Scroll up using ADB swipe (finger top→bottom, content moves DOWN,
+    # revealing content ABOVE where the reference toggle sits)
+    for _ in range(30):
+        _adb_swipe(540, 400, 540, 1800, 200)
+        time.sleep(0.3)
         refs = d(resourceId="com.larus.nova:id/tv_reference_content")
         if refs.exists:
-            return
-        # Scroll up to find the reference toggle (it's near the top of the AI message)
-        wrapper = d(resourceId="com.larus.nova:id/ll_reference_title")
-        for _ in range(8):
-            if wrapper.exists:
-                break
-            d.swipe(540, 800, 540, 1800, 0.2)
-            time.sleep(0.3)
-        if wrapper.exists:
-            wrapper.click()
-            # Wait for expansion animation
-            for _ in range(10):
+            return refs.count
+        if _click_toggle_safe():
+            for _ in range(15):
                 time.sleep(0.3)
                 refs = d(resourceId="com.larus.nova:id/tv_reference_content")
                 if refs.exists:
-                    time.sleep(0.2)
-                    return
-    except Exception:
-        pass
+                    time.sleep(0.3)
+                    return refs.count
+            return 0
+
+    # Recovery: close any lingering WebView, go home, then monkey-launch
+    # Doubao back to foreground. Frida stays attached (no force-stop).
+    subprocess.run([ADB, "-s", DEVICE, "shell", "input", "keyevent", "4"],
+                   capture_output=True)
+    time.sleep(0.5)
+    for recovery_attempt in range(2):
+        subprocess.run([ADB, "-s", DEVICE, "shell", "input", "keyevent", "3"],
+                       capture_output=True)
+        time.sleep(0.5)
+        subprocess.run([ADB, "-s", DEVICE, "shell", "monkey", "-p", PACKAGE, "1"],
+                       capture_output=True)
+        time.sleep(6)
+        _ensure_unlocked()
+        global _d
+        _d = None
+        d = _get_d()
+
+        for _ in range(30):
+            _adb_swipe(540, 400, 540, 1800, 200)
+            time.sleep(0.3)
+            if _click_toggle_safe():
+                for _ in range(15):
+                    time.sleep(0.3)
+                    refs = d(resourceId="com.larus.nova:id/tv_reference_content")
+                    if refs.exists:
+                        time.sleep(0.3)
+                        return refs.count
+                break  # Toggle clicked but no cards — try recovery again
+            refs = d(resourceId="com.larus.nova:id/tv_reference_content")
+            if refs.exists:
+                return refs.count
+
+    return 0
 
 
 def _capture_urls(source_count):
-    """Click each reference card and capture URLs from Frida output.
-    Returns list of URLs in same order as reference indices."""
+    """Click each reference card and capture URLs from Frida output."""
     d = _get_d()
     urls = []
 
-    # Ensure references are expanded
-    refs = d(resourceId="com.larus.nova:id/tv_reference_content")
-    if refs.count == 0:
-        _expand_references()
-        time.sleep(1)
+    visible = _ensure_refs_visible()
+    if not visible:
+        print("  [!] Cannot find reference cards")
+        return urls
 
     baseline = _read_frida_output()
 
     for i in range(source_count):
+        d = _get_d()  # Refresh — _ensure_refs_visible may have reset connection
         refs = d(resourceId="com.larus.nova:id/tv_reference_content")
+        # Scroll within the reference list to reveal card [i]
+        # Finger from bottom→top, content moves UP, revealing cards BELOW
+        for _ in range(20):
+            if i < refs.count:
+                break
+            _adb_swipe(540, 1700, 540, 600, 200)
+            time.sleep(0.3)
+            refs = d(resourceId="com.larus.nova:id/tv_reference_content")
+
         if i >= refs.count:
-            print(f"  [!] Reference [{i}] not found, stopping URL capture")
-            break
+            print(f"  [!] Card [{i}] not found (have {refs.count})")
+            urls.append("")
+            continue
 
         title = refs[i].get_text()
-        print(f"  [{i}] {title[:50]}...")
+        short = title[:55] + ("..." if len(title) > 55 else "")
+        print(f"  [{i}] {short}")
         refs[i].click()
         time.sleep(2.5)
 
-        # Read new Frida output and extract new URLs
         new_output = _read_frida_output()
         new_urls = _parse_new_urls(baseline, new_output)
-        if new_urls:
-            urls.append(new_urls[0])
-        else:
-            urls.append("")
-
+        urls.append(new_urls[0] if new_urls else "")
         baseline = new_output
 
-        # Go back
-        d.press("back")
-        time.sleep(1.5)
+        # Back via ADB keyevent, then wait for UI to settle
+        subprocess.run([ADB, "-s", DEVICE, "shell", "input", "keyevent", "4"],
+                       capture_output=True)
+        time.sleep(3)
+        _ensure_unlocked()
 
-        # Re-expand references if they collapsed
-        refs_check = d(resourceId="com.larus.nova:id/tv_reference_content")
-        if refs_check.count == 0:
-            _expand_references()
-            time.sleep(1)
+        # Re-establish reference visibility for next card
+        if i + 1 < source_count:
+            _ensure_refs_visible()
 
     return urls
 

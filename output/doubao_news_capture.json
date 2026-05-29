@@ -2,17 +2,99 @@
   "code": 0,
   "msg": "success",
   "data": {
-    "conversation_id": "ui_capture_1779181323",
-    "created_at": "2026-05-19T17:02:03",
-    "capture_method": "ui_text_extraction",
-    "conversations": [
+    "task_id": "594504f1959c",
+    "question": "今天有什么科技新闻",
+    "mode": "quick",
+    "search_keywords": [
+      "2026年5月29日科技新闻",
+      "今日科技热点"
+    ],
+    "search_sources": [
       {
-        "task_id": "ui_capture_task",
-        "question": "今天有哪些大新闻",
-        "mode": "browsing",
-        "answer": "🔥 2026-05-19 今日大新闻（速览）\n\n一、国际重磅\n\n普京访华（5.19–20）\n应习近平主席邀请，普京抵华进行国事访问。\n访华前视频讲话：深化中俄全方位合作，能源、本币结算、AI/航天有望签大单。\n\n美国暂缓打击伊朗\n特朗普：应卡塔尔、沙特、阿联酋请求，推迟原定于5.19的对伊军事打击，给外交谈判窗口期。\n油价高位震荡：WTI约102美元/桶，布伦特约112美元/桶。\n\n世卫大会连续10年拒台\n第79届世卫大会（5.18）再次否决\"台湾以观察员身份参会\"提案，连续10年，一中原则稳固。\n\n二、国内要闻\n\n南方强降雨+地质灾害\n中央气象台暴雨橙色预警：皖、鄂、湘、桂、赣、浙、闽大暴雨/局地特大暴雨。\n湖北宣恩：汛情致3死4失联；广西柳州：5.2级地震，2死。\n\n上海陆家嘴持刀伤人\n12:25，世纪大道商务楼餐厅，男子持刀致3人受伤，嫌疑人（59岁）有精神病史，已刑拘。\n\nAPEC上海第二次高官会\n中方主办，盘点年中进展，为深圳领导人峰会铺路，聚焦开放、创新、合作。\n\n三、经济民生\n\n1–4月经济稳进：国家统计局发布，消费、工业、投资回暖。\n北斗产值破6290亿（2025）：同比+9.24%，全面融入交通、农业、国防等领域。\n民企34项扶持政策：市场监管总局发布，解融资难、审批繁等痛点。\n\n要不要我把以上新闻浓缩成3条一句话头条，方便快速转发？",
-        "answer_preview": "🔥 2026-05-19 今日大新闻（速览）\n\n一、国际重磅\n\n普京访华（5.19–20）\n应习近平主席邀请，普京抵华进行国事访问。\n访华前视频讲话：深化中俄全方位合作，能源、本币结算、AI/航天有望签大单。\n\n美国暂缓打击伊朗\n特朗普：应卡塔尔、沙特、阿联酋请求，推迟原定于5.19的对伊军事打击，给外交谈判窗口期。\n油价高位震荡：WTI约102美元/桶，布伦特约112美元/桶。\n\n世卫大会连续1..."
+        "title": "神舟二十二号载人飞船顺利撤离空间站组合体_央视新闻",
+        "url": "http://m.toutiao.com/group/7645203457095287337/?use_xbridge3=true&loader_name=forest&need_sec_link=1&sec_link_scene=im&theme=light",
+        "sitename": "",
+        "summary": ""
+      },
+      {
+        "title": "分子手术刀迭代升级 应用场景日益丰富——基因编辑，迈向精准医疗新阶段 | 国际科技前沿_全国党媒信息公共平台",
+        "url": "http://m.toutiao.com/group/7645132687862432307/?use_xbridge3=true&loader_name=forest&need_sec_link=1&sec_link_scene=im&theme=light",
+        "sitename": "",
+        "summary": ""
+      },
+      {
+        "title": "科技事儿的微博",
+        "url": "https://m.weibo.cn/detail/5303829421885594?use_xbridge3=true&need_sec_link=1&sec_link_scene=im&theme=light",
+        "sitename": "",
+        "summary": ""
+      },
+      {
+        "title": "科技 前沿 （ 5 . 29 ） # 6G # AI # 机器人 # 人工 智能 # 新 能源",
+        "url": "https://www.iesdouyin.com/share/video/7645078820126608646?use_xbridge3=true&need_sec_link=1&sec_link_scene=im&theme=light",
+        "sitename": "",
+        "summary": ""
+      },
+      {
+        "title": "馨姐擒龙的微博",
+        "url": "https://m.weibo.cn/detail/5303834650088284?use_xbridge3=true&need_sec_link=1&sec_link_scene=im&theme=light",
+        "sitename": "",
+        "summary": ""
+      },
+      {
+        "title": "News tagged development at DIGITIMES",
+        "url": "https://www.digitimes.com/tag/development/0014507.html?chid=9&use_xbridge3=true&loader_name=forest&need_sec_link=1&sec_link_scene=im&theme=light",
+        "sitename": "",
+        "summary": ""
+      },
+      {
+        "title": "今日AI|2026.5.29 AI科技热点前五(精简+解读)_AI赋能成长记",
+        "url": "http://m.toutiao.com/group/7645073742925709864/?use_xbridge3=true&loader_name=forest&need_sec_link=1&sec_link_scene=im&theme=light",
+        "sitename": "",
+        "summary": ""
+      },
+      {
+        "title": "2026 年 05 月 29 日 新闻 速递 三 分钟 知 天下 事 ， 每日 收集 ： 今日 头条 、 澎湃 新闻 、 财 联社 、 华尔街 见闻 、 凤凰网 、 抖音 热搜 、 参考 消息 、 腾讯 新闻 等 各 大 平台 最新 最热 的 消息 ， 让 你 每日 只需 几 分钟 ， 便 能 了解 天下 事 # 信息 差 # 今日 头条 新闻 # 国际 新闻 # 快讯 # 新闻 热点 大 事件",
+        "url": "https://www.iesdouyin.com/share/video/7645097002761571599?use_xbridge3=true&need_sec_link=1&sec_link_scene=im&theme=light",
+        "sitename": "",
+        "summary": ""
+      },
+      {
+        "title": "热点速览|苹果全力冲刺 AI 突围 ，40 岁夫妻全职游戏搬砖月入破万_潮玩科技电报",
+        "url": "http://m.toutiao.com/group/7645106918511411718/?use_xbridge3=true&loader_name=forest&need_sec_link=1&sec_link_scene=im&theme=light",
+        "sitename": "",
+        "summary": ""
+      },
+      {
+        "title": "Sci-Tech News Today",
+        "url": "https://www.scitechnewstoday.com/?use_xbridge3=true&loader_name=forest&need_sec_link=1&sec_link_scene=im&theme=light",
+        "sitename": "",
+        "summary": ""
+      },
+      {
+        "title": "AI 早报 ｜ 5月 29 日 科技 圈 大 事件 今日 科技 圈 六大 热点 ： Gemini 3 . 5 越权 删 光 两万 行 代码 后 编造 修复 报告 ； Robinhood 推出 AI 代理 交易 开启 自主 金融 时代 ； Open Router 获 1 . 13 亿 美元 融资 ； Mini Max 客户 破 百万 ARR 翻番 ； SpaceX 披露 AI 芯片 短缺 风险 ；",
+        "url": "https://www.iesdouyin.com/share/video/7645090357222427956?use_xbridge3=true&need_sec_link=1&sec_link_scene=im&theme=light",
+        "sitename": "",
+        "summary": ""
+      },
+      {
+        "title": "IT今日热榜 一站式资讯平台",
+        "url": "http://itoday.top/?use_xbridge3=true&loader_name=forest&need_sec_link=1&sec_link_scene=im&theme=light",
+        "sitename": "",
+        "summary": ""
       }
-    ]
+    ],
+    "search_summary": "搜索 2 个关键词，参考 12 篇资料",
+    "thinking_process": "",
+    "answer": "5月29日 今日核心科技新闻（真实权威版）\n \n一、航天领域\n \n1. 神舟二十二号飞船撤离空间站，航天员今晚返回地球\n14:44飞船与空间站成功分离，张陆、武飞、张洪章三名航天员结束210天在轨驻留，刷新我国航天员在轨时长纪录，将于晚间择机着陆东风着陆场 。\n​\n2. 天问二号探测器成功发射\n凌晨完成零窗口精准发射，我国正式开启首次小行星采样返回+彗星探测任务，是深空探测里程碑突破。\n \n二、AI行业重磅热点\n \n1. Anthropic完成巨额融资，登顶全球AI初创估值榜首\nClaude大模型开发商获650亿美元H轮融资，投后估值9650亿美元，反超OpenAI成为全球估值最高的AI公司，算力竞赛持续白热化。\n​\n2. 国家出台AI计量监管新规\n市场监管总局、发改委联合发文，要求AI数据实现全链条可追溯、可验证，填补AI安全监管空白。\n​\n3. 阿里通义千问Qwen3.7‑Max登顶国产第一\n性能位列全球第五、国产第一，逼近GPT‑4、Claude顶尖梯队，国产大模型实力再上新台阶。\n \n三、消费电子与芯片\n \n1. 苹果WWDC26定档6月8日，iOS 27将重构Siri 2.0\n新版系统把AI植入底层，语音助手支持连续对话、跨应用协同，搭配独立聊天界面与端侧隐私加密。\n​\n2. 三星首发HBM4E内存样品\n12层新一代AI高带宽内存正式出货，AI算力硬件竞争进入新阶段。\n \n四、智能汽车与前沿医疗\n \n1. 比亚迪4nm璇玑A3车规智驾芯片量产\n推出1.2万元统一智驾选装包，7万级入门车型即可搭载高阶智驾，并承诺智驾事故全额赔付。\n​\n2. 国产基因编辑疗法攻克高血脂难题\n上海团队研发的碱基编辑疗法，可一次治疗长期控制坏胆固醇，标志基因编辑从罕见病治疗转向常见慢病防控 。\n \n需要我把这些新闻精简成3条极简头条速览吗？",
+    "total_references": 12,
+    "statistics": {
+      "sitename_counts": {},
+      "brands": [],
+      "token_usage": {
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_tokens": 0
+      }
+    }
   }
 }

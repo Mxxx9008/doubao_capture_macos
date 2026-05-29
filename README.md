@@ -12,9 +12,12 @@ python3 -m uiautomator2 init
 # 2. 手机已连接 + USB 调试开启
 adb devices
 
-# 3. 抓取
+# 3. 文本抓取
 cd ~/Desktop/doubao_capture
 python3 doubao_capture.py "你的问题"
+
+# 4. 文本 + URL 抓取 (需要 Frida + root)
+python3 doubao_capture.py "你的问题" --frida
 
 # 输出: ~/Desktop/doubao_capture.json
 ```
@@ -26,7 +29,7 @@ python3 doubao_capture.py "你的问题"
 | AI 回答文本 | ✅ | ✅ |
 | 搜索关键词 | ✅ | ✅ |
 | 参考来源标题 + 站点名 | ✅ | ✅ |
-| 参考来源 URL | ❌ (UI 版本差异) | ✅ (`--frida`) |
+| 参考来源 URL | ✅ (`--frida`) | ✅ (`--frida`) |
 | 参考内容 Summary | ❌ | ❌ |
 
 ## 目录结构
@@ -54,7 +57,7 @@ doubao_capture/
 # 文本抓取 (Level A) — 手机/模拟器通用
 python3 doubao_capture.py "你的问题"
 
-# URL 抓取 (Level B) — 仅模拟器
+# URL 抓取 (Level B) — 手机/模拟器通用，需 Frida
 python3 doubao_capture.py "你的问题" --frida
 
 # 仅抓取当前屏幕（不发消息）
@@ -110,3 +113,7 @@ Frida hook `android.webkit.WebView.loadUrl()` 拦截参考链接的 URL。模拟
 4. **系统通知误判** — "正在充电"等通知被误认为 AI 回复，加最小 80 字符过滤
 5. **手机/模拟器 UI 差异** — 不同版本 Doubao 的 resource ID 和参考区布局不同
 6. **Frida spawn 被反检测** — 改用 monkey 启动 + PID attach 方式挂载
+7. **uiautomator2 swipe 不可靠** — Doubao 上 `d.swipe()` 经常不生效，改用 `adb shell input swipe`
+8. **uiautomator2 press("back") 不可靠** — 改用 `adb shell input keyevent 4`
+9. **RecyclerView exists/click 竞态** — 检查元素存在后点击时已被回收，改为先读坐标再用 ADB tap
+10. **WebView 返回后参考区丢失** — HOME + monkey 恢复 ChatActivity，不杀进程保持 Frida 挂载
